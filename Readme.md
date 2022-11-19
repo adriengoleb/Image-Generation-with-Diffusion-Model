@@ -1,1 +1,1 @@
-no-name-idea-fusion-Team for Diffusion Models Project
+Diffusion Models Project applied to the toy dataset Mnist
