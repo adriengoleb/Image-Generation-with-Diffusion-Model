@@ -3,21 +3,22 @@ import math
 import torch
 
 
+from torch import nn
+import math
+
 class Block(nn.Module):
     def __init__(self, in_ch, out_ch, time_emb_dim, up=False):
         super().__init__()
         self.time_mlp =  nn.Linear(time_emb_dim, out_ch)
         k=4
         s=2
-        p=2 
+        p=1
         if up:
             self.conv1 = nn.Conv2d(2*in_ch, out_ch, 3, padding=1) # 2*in_ch because we concat the residual input
             self.transform = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=k, stride=s, padding=p)
-            self.transform2 = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=3, stride=s, padding=1)
         else: #down
           self.conv1 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
           self.transform = nn.Conv2d(out_ch, out_ch, kernel_size=k, stride=s, padding=p)
-          self.transform2 = self.transform
         self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
         self.bnorm1 = nn.BatchNorm2d(out_ch)
         self.bnorm2 = nn.BatchNorm2d(out_ch)
@@ -27,21 +28,20 @@ class Block(nn.Module):
         # First Conv
         h = self.bnorm1(self.relu(self.conv1(x)))
         # Time embedding
-        time_emb = self.relu(self.time_mlp(t))
-        # Extend last 2 dimensions
-        time_emb = time_emb[(..., ) + (None, ) * 2]
+        time_emb = self.relu(self.time_mlp(t)) 
+        time_emb = time_emb[(..., ) + (None, ) * 2] # Extend last 2 dimensions
         # Add time channel
         h = h + time_emb
         # Second Conv
         h = self.bnorm2(self.relu(self.conv2(h)))
         # Down or Upsample
-        
+        '''
         if x.shape[-1]==3 or x.shape[-1]==8:
             return self.transform2(h)
         else:
             return self.transform(h)
-            '''
-        return self.transform(h)'''
+        '''
+        return self.transform(h)
 
 
 class SinusoidalPositionEmbeddings(nn.Module):
@@ -56,7 +56,6 @@ class SinusoidalPositionEmbeddings(nn.Module):
         embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
         embeddings = time[:, None] * embeddings[None, :]
         embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
-        # TODO: Double check the ordering here
         return embeddings
 
 
@@ -67,8 +66,8 @@ class SimpleUnet(nn.Module):
     def __init__(self):
         super().__init__()
         image_channels = 1
-        down_channels = (64, 128, 256, 512, 1024)
-        up_channels = (1024, 512, 256, 128, 64)
+        down_channels = (16, 32, 64, 128, 256)
+        up_channels = (256, 128, 64, 32, 16)
         out_dim = 1 
         time_emb_dim = 32
 
@@ -83,12 +82,10 @@ class SimpleUnet(nn.Module):
         self.conv0 = nn.Conv2d(image_channels, down_channels[0], 3, padding=1)
 
         # Downsample
-        self.downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], \
-                                    time_emb_dim) \
+        self.downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], time_emb_dim) \
                     for i in range(len(down_channels)-1)])
         # Upsample
-        self.ups = nn.ModuleList([Block(up_channels[i], up_channels[i+1], \
-                                        time_emb_dim, up=True) \
+        self.ups = nn.ModuleList([Block(up_channels[i], up_channels[i+1], time_emb_dim, up=True) \
                     for i in range(len(up_channels)-1)])
 
         self.output = nn.Conv2d(up_channels[-1], 1, out_dim)
